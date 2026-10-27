@@ -37,9 +37,9 @@ func ListenAndServe(addr string, handler http.Handler) error {
 func HandleConnection(conn net.Conn, mux http.Handler) error {
 	defer conn.Close()
 	reader := bufio.NewReader(conn)
+
 	for {
 		req, err := ParseRequest(reader)
-
 		if err != nil {
 			if err == io.EOF {
 				return nil
@@ -47,12 +47,28 @@ func HandleConnection(conn net.Conn, mux http.Handler) error {
 				res := NewResponse(conn)
 				res.Header().Set("Connection", "close")
 				res.WriteHeader(http.StatusHTTPVersionNotSupported)
-				_, _ = res.Write([]byte("505 \r\n"))
+				res.Write([]byte("505 \r\n"))
+				return nil
+			} else if errors.Is(err, MalFormed) {
+				res := NewResponse(conn)
+				res.Header().Set("Connection", "close")
+				res.WriteHeader(http.StatusBadRequest)
+				res.Write([]byte("400 \r\n"))
 				return nil
 			}
 			return err
 		}
-		mux.ServeHTTP(NewResponse(conn), req)
+
+		res := NewResponse(conn)
+		if req.ProtoMajor == 1 && req.ProtoMinor == 0 && !req.Close {
+			res.Header().Set("Connection", "keep-alive")
+		}
+		mux.ServeHTTP(res, req)
+
+		if err = res.SendHeaders(); err != nil {
+			return err
+		}
+
 		if req.Close {
 			break
 		}

@@ -19,24 +19,23 @@ func ParseRequest(reader *bufio.Reader) (*http.Request, error) {
 		if err != nil {
 			return nil, err
 		}
-		line = strings.TrimSuffix(line, "\n")
-		line = strings.TrimSuffix(line, "\r")
+		trimmedLine := strings.TrimSuffix(line, "\r\n")
 
-		if len(line) == 0 {
+		if len(startline) == 0 {
+			err := verifyStartingLine(line)
+			if err != nil {
+				return nil, err
+			}
+			startline = strings.Fields(trimmedLine)
+		} else if len(trimmedLine) == 0 {
 			if clStr, ok := header["Content-Length"]; ok {
 				if cl, err := strconv.Atoi(clStr); err == nil {
 					body = io.LimitReader(reader, int64(cl))
 				}
 			}
 			break
-		} else if len(startline) == 0 {
-			startline = strings.Fields(line)
-			err := verifyStartingLine(startline)
-			if err != nil {
-				return nil, err
-			}
 		} else {
-			before, after, found := strings.Cut(line, ":")
+			before, after, found := strings.Cut(trimmedLine, ":")
 			if found {
 				header[before] = strings.TrimSpace(after)
 			}
@@ -50,21 +49,63 @@ func ParseRequest(reader *bufio.Reader) (*http.Request, error) {
 	for key, value := range header {
 		req.Header.Set(key, value)
 	}
-	if strings.ToUpper(req.Header.Get("Connection")) == "CLOSE" || startline[2] == "HTTP/1.0" {
-		req.Close = true
+	if startline[2] == "HTTP/1.0" {
+		req.Proto = "HTTP/1.0"
+		req.ProtoMajor = 1
+		req.ProtoMinor = 0
 	}
-
+	connHeader := strings.ToLower(req.Header.Get("Connection"))
+	if req.ProtoMinor == 0 {
+		req.Close = connHeader != "keep-alive"
+	} else {
+		req.Close = connHeader == "close"
+	}
 	return req, nil
 }
 
-func verifyStartingLine(startingLine []string) error {
-
-	// cut
-
-	if startingLine[2] != "HTTP/1.0" && startingLine[2] != "HTTP/1.1" {
-		return BadVersion
-	} else if len(startingLine) != 3 {
+func verifyStartingLine(startline string) error {
+	if !strings.HasSuffix(startline, "\r\n") {
 		return MalFormed
+	}
+	startline = strings.TrimSuffix(startline, "\r\n")
+
+	startlineFields := strings.Fields(startline)
+	if len(startlineFields) != 3 {
+		return MalFormed
+	}
+
+	method := startlineFields[0]
+	if strings.ToUpper(method) != "GET" &&
+		method != "POST" &&
+		method != "PUT" &&
+		method != "DELETE" &&
+		method != "OPTIONS" &&
+		method != "PATCH" &&
+		method != "HEAD" {
+		return MalFormed
+	}
+
+	versionString := startlineFields[2]
+	before, after, found := strings.Cut(versionString, "/")
+
+	// Check the prefix
+	if !found || before != "HTTP" {
+		return MalFormed
+	}
+	majorStr, minorStr, hasDot := strings.Cut(after, ".")
+	if !hasDot {
+		return MalFormed
+	}
+	major, err1 := strconv.Atoi(majorStr)
+	minor, err2 := strconv.Atoi(minorStr)
+	if err1 != nil || err2 != nil {
+		return MalFormed
+	}
+	if major != 1 {
+		return BadVersion
+	}
+	if minor != 0 && minor != 1 {
+		return BadVersion
 	}
 	return nil
 }
