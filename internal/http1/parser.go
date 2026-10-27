@@ -2,6 +2,7 @@ package http1
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
@@ -23,22 +24,21 @@ func ParseRequest(reader *bufio.Reader) (*http.Request, error) {
 			fmt.Println("Error reading line:", err)
 			return nil, err
 		}
-
 		line = strings.TrimSuffix(line, "\n")
 		line = strings.TrimSuffix(line, "\r")
 
 		if len(line) == 0 {
-			if isBodyAllowed(startline[0]) {
-				if clStr, ok := header["Content-Length"]; ok {
-					if cl, err := strconv.Atoi(clStr); err == nil {
-						body = io.LimitReader(reader, int64(cl))
-					}
+			if clStr, ok := header["Content-Length"]; ok {
+				if cl, err := strconv.Atoi(clStr); err == nil {
+					body = io.LimitReader(reader, int64(cl))
 				}
 			}
 			break
-		}
-
-		if len(startline) == 0 {
+		} else if len(startline) == 0 {
+			err := verifyStartingLine(line)
+			if err != nil {
+				return nil, err
+			}
 			startline = strings.Fields(line)
 		} else {
 			before, after, found := strings.Cut(line, ":")
@@ -58,12 +58,11 @@ func ParseRequest(reader *bufio.Reader) (*http.Request, error) {
 	return req, err
 }
 
-func isBodyAllowed(startLine string) bool {
-	startLine = strings.ToUpper(startLine)
-	if strings.HasPrefix(startLine, "POST") ||
-		strings.HasPrefix(startLine, "PUT") ||
-		strings.HasPrefix(startLine, "PATCH") {
-		return true
+func verifyStartingLine(startingLine string) error {
+	if !strings.HasSuffix(startingLine, "\n\r") ||
+		len(strings.Fields(startingLine)) != 3 ||
+		strings.Count(startingLine, " ") != 2 {
+		return errors.New("invalid starting line")
 	}
-	return false
+	return nil
 }

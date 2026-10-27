@@ -3,6 +3,7 @@ package main
 import (
 	"fmt"
 	"httpServer/internal/http1"
+	"io"
 	"net/http"
 )
 
@@ -13,7 +14,13 @@ func main() {
 		fmt.Fprintf(w, "hello")
 	})
 	http.HandleFunc("POST /hello", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "hello post")
+		body, err := io.ReadAll(r.Body)
+		if err != nil {
+			http.Error(w, "failed to read body", http.StatusBadRequest)
+			return
+		}
+		defer r.Body.Close()
+		fmt.Fprintf(w, "%s", string(body))
 	})
 	if err := http1.ListenAndServe(addr, nil); err != nil {
 		panic(err)

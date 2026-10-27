@@ -41,7 +41,5 @@ func (r *Response) Write(data []byte) (n int, err error) {
 }
 
 func (r *Response) WriteHeader(statusCode int) {
-	if r.statusCode == 0 {
-		r.statusCode = statusCode
-	}
+	r.statusCode = statusCode
 }

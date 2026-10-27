@@ -23,13 +23,13 @@ func ListenAndServe(addr string, handler http.Handler) error {
 		if err != nil {
 			return err
 		}
-		go func() {
+		go func(c net.Conn) {
 			defer con.Close()
 			err = HandleConnection(con, handler)
 			if err != nil {
 				fmt.Printf("error handling connection: %v\n", err)
 			}
-		}()
+		}(con)
 	}
 }
 
