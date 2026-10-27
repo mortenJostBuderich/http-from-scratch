@@ -3,7 +3,6 @@ package http1
 import (
 	"bufio"
 	"errors"
-	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -17,11 +16,7 @@ func ParseRequest(reader *bufio.Reader) (*http.Request, error) {
 
 	for {
 		line, err := reader.ReadString('\n')
-		if err == io.EOF {
-			fmt.Println("Connection closed by remote host")
-			break
-		} else if err != nil {
-			fmt.Println("Error reading line:", err)
+		if err != nil {
 			return nil, err
 		}
 		line = strings.TrimSuffix(line, "\n")
@@ -35,11 +30,11 @@ func ParseRequest(reader *bufio.Reader) (*http.Request, error) {
 			}
 			break
 		} else if len(startline) == 0 {
-			err := verifyStartingLine(line)
+			startline = strings.Fields(line)
+			err := verifyStartingLine(startline)
 			if err != nil {
 				return nil, err
 			}
-			startline = strings.Fields(line)
 		} else {
 			before, after, found := strings.Cut(line, ":")
 			if found {
@@ -55,14 +50,26 @@ func ParseRequest(reader *bufio.Reader) (*http.Request, error) {
 	for key, value := range header {
 		req.Header.Set(key, value)
 	}
-	return req, err
+	if strings.ToUpper(req.Header.Get("Connection")) == "CLOSE" || startline[2] == "HTTP/1.0" {
+		req.Close = true
+	}
+
+	return req, nil
 }
 
-func verifyStartingLine(startingLine string) error {
-	if !strings.HasSuffix(startingLine, "\n\r") ||
-		len(strings.Fields(startingLine)) != 3 ||
-		strings.Count(startingLine, " ") != 2 {
-		return errors.New("invalid starting line")
+func verifyStartingLine(startingLine []string) error {
+
+	// cut
+
+	if startingLine[2] != "HTTP/1.0" && startingLine[2] != "HTTP/1.1" {
+		return BadVersion
+	} else if len(startingLine) != 3 {
+		return MalFormed
 	}
 	return nil
 }
+
+var (
+	BadVersion = errors.New("bad version")
+	MalFormed  = errors.New("malformed")
+)

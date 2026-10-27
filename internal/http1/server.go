@@ -2,7 +2,9 @@ package http1
 
 import (
 	"bufio"
+	"errors"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 )
@@ -24,8 +26,7 @@ func ListenAndServe(addr string, handler http.Handler) error {
 			return err
 		}
 		go func(c net.Conn) {
-			defer con.Close()
-			err = HandleConnection(con, handler)
+			err := HandleConnection(c, handler)
 			if err != nil {
 				fmt.Printf("error handling connection: %v\n", err)
 			}
@@ -34,11 +35,27 @@ func ListenAndServe(addr string, handler http.Handler) error {
 }
 
 func HandleConnection(conn net.Conn, mux http.Handler) error {
+	defer conn.Close()
 	reader := bufio.NewReader(conn)
-	req, err := ParseRequest(reader)
-	if err != nil {
-		return err
+	for {
+		req, err := ParseRequest(reader)
+
+		if err != nil {
+			if err == io.EOF {
+				return nil
+			} else if errors.Is(err, BadVersion) {
+				res := NewResponse(conn)
+				res.Header().Set("Connection", "close")
+				res.WriteHeader(http.StatusHTTPVersionNotSupported)
+				_, _ = res.Write([]byte("505 \r\n"))
+				return nil
+			}
+			return err
+		}
+		mux.ServeHTTP(NewResponse(conn), req)
+		if req.Close {
+			break
+		}
 	}
-	mux.ServeHTTP(NewResponse(conn), req)
 	return nil
 }
