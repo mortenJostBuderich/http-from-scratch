@@ -2,9 +2,7 @@ package http1
 
 import (
 	"bufio"
-	"errors"
 	"fmt"
-	"io"
 	"net"
 	"net/http"
 )
@@ -40,31 +38,23 @@ func HandleConnection(conn net.Conn, mux http.Handler) error {
 
 	for {
 		req, err := ParseRequest(reader)
-		if err != nil {
-			if err == io.EOF {
-				return nil
-			} else if errors.Is(err, BadVersion) {
-				res := NewResponse(conn)
-				res.Header().Set("Connection", "close")
-				res.WriteHeader(http.StatusHTTPVersionNotSupported)
-				res.Write([]byte("505 \r\n"))
-				return nil
-			} else if errors.Is(err, MalFormed) {
-				res := NewResponse(conn)
-				res.Header().Set("Connection", "close")
-				res.WriteHeader(http.StatusBadRequest)
-				res.Write([]byte("400 \r\n"))
-				return nil
-			}
-			return err
-		}
-
 		res := NewResponse(conn)
-		if req.ProtoMajor == 1 && req.ProtoMinor == 0 && !req.Close {
-			res.Header().Set("Connection", "keep-alive")
+		if err != nil {
+			res.WriteHeader(http.StatusBadRequest)
+			res.SendHeaders()
+			break
 		}
-		mux.ServeHTTP(res, req)
+		if req == nil {
+			break
+		}
 
+		if !(req.ProtoMajor == 1 && req.ProtoMinor == 1) && !(req.ProtoMajor == 1 && req.ProtoMinor == 0) {
+			res.WriteHeader(http.StatusHTTPVersionNotSupported)
+			res.SendHeaders()
+			break
+		}
+
+		mux.ServeHTTP(res, req)
 		if err = res.SendHeaders(); err != nil {
 			return err
 		}

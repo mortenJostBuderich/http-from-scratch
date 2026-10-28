@@ -2,7 +2,7 @@ package http1
 
 import (
 	"bufio"
-	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"strconv"
@@ -10,68 +10,55 @@ import (
 )
 
 func ParseRequest(reader *bufio.Reader) (*http.Request, error) {
-	var startline []string
-	header := make(map[string]string)
-	var body io.Reader
-
-	for {
-		line, err := reader.ReadString('\n')
-		if err != nil {
-			return nil, err
-		}
-		trimmedLine := strings.TrimSuffix(line, "\r\n")
-
-		if len(startline) == 0 {
-			err := verifyStartingLine(line)
-			if err != nil {
-				return nil, err
-			}
-			startline = strings.Fields(trimmedLine)
-		} else if len(trimmedLine) == 0 {
-			if clStr, ok := header["Content-Length"]; ok {
-				if cl, err := strconv.Atoi(clStr); err == nil {
-					body = io.LimitReader(reader, int64(cl))
-				}
-			}
-			break
-		} else {
-			before, after, found := strings.Cut(trimmedLine, ":")
-			if found {
-				header[before] = strings.TrimSpace(after)
-			}
-		}
-	}
-
-	req, err := http.NewRequest(startline[0], startline[1], body)
+	method, path, majorVersion, minorVersion, err := parseStartLine(reader)
 	if err != nil {
 		return nil, err
 	}
-	for key, value := range header {
-		req.Header.Set(key, value)
+
+	header, err := parseHeaders(reader)
+	if err != nil {
+		return nil, err
 	}
-	if startline[2] == "HTTP/1.0" {
-		req.Proto = "HTTP/1.0"
-		req.ProtoMajor = 1
-		req.ProtoMinor = 0
+
+	body, err := parseBody(reader, header)
+	if err != nil {
+		return nil, err
 	}
+
+	// create request
+	req, err := http.NewRequest(method, path, body)
+	if err != nil {
+		return nil, err
+	}
+	req.Method = method
+	req.RequestURI = path
+	req.ProtoMajor = majorVersion
+	req.ProtoMinor = minorVersion
+	req.Header = header
+
 	connHeader := strings.ToLower(req.Header.Get("Connection"))
-	if req.ProtoMinor == 0 {
+	if req.ProtoMajor == 1 && req.ProtoMinor == 0 {
 		req.Close = connHeader != "keep-alive"
 	} else {
 		req.Close = connHeader == "close"
 	}
+
 	return req, nil
 }
 
-func verifyStartingLine(startline string) error {
-	if !strings.HasSuffix(startline, "\r\n") {
-		return MalFormed
+func parseStartLine(reader *bufio.Reader) (string, string, int, int, error) {
+	line, err := reader.ReadString('\n')
+	if err != nil {
+		return "", "", 0, 0, err
 	}
-	startline = strings.TrimSuffix(startline, "\r\n")
+	if !strings.HasSuffix(line, "\r\n") {
+		return "", "", 0, 0, fmt.Errorf("malformed")
+	}
 
-	startlineFields := strings.Fields(startline)
+	line = strings.TrimSuffix(line, "\r\n")
+	startlineFields := strings.Fields(line)
 	if len(startlineFields) != 3 {
-		return MalFormed
+		return "", "", 0, 0, fmt.Errorf("malformed")
 	}
 
 	method := startlineFields[0]
@@ -82,35 +69,70 @@ func verifyStartingLine(startline string) error {
 		method != "OPTIONS" &&
 		method != "PATCH" &&
 		method != "HEAD" {
-		return MalFormed
+		return "", "", 0, 0, fmt.Errorf("malformed")
 	}
+
+	path := startlineFields[1]
 
 	versionString := startlineFields[2]
 	before, after, found := strings.Cut(versionString, "/")
-
-	// Check the prefix
 	if !found || before != "HTTP" {
-		return MalFormed
+		return "", "", 0, 0, fmt.Errorf("malformed")
 	}
 	majorStr, minorStr, hasDot := strings.Cut(after, ".")
 	if !hasDot {
-		return MalFormed
+		return "", "", 0, 0, fmt.Errorf("malformed")
 	}
 	major, err1 := strconv.Atoi(majorStr)
 	minor, err2 := strconv.Atoi(minorStr)
 	if err1 != nil || err2 != nil {
-		return MalFormed
+		return "", "", 0, 0, fmt.Errorf("malformed")
 	}
-	if major != 1 {
-		return BadVersion
-	}
-	if minor != 0 && minor != 1 {
-		return BadVersion
-	}
-	return nil
+
+	return method, path, major, minor, err
 }
 
-var (
-	BadVersion = errors.New("bad version")
-	MalFormed  = errors.New("malformed")
-)
+func parseHeaders(reader *bufio.Reader) (http.Header, error) {
+	header := make(http.Header)
+	for {
+		line, prefix, err := reader.ReadLine()
+		if err != nil {
+			return nil, fmt.Errorf("failed to read line: %w", err)
+		}
+		if prefix {
+			return nil, fmt.Errorf("header line is too long: %d", line)
+		}
+		if string(line) == "" {
+			break
+		}
+		if strings.HasPrefix(string(line), " ") {
+			return nil, fmt.Errorf("header lines may not start with a space: %s", line)
+		}
+		if strings.Contains(string(line), "\r") {
+			return nil, fmt.Errorf("header lines may not contain CR: %s", line)
+		}
+		parts := strings.SplitN(string(line), ":", 2)
+		if len(parts) != 2 {
+			return nil, fmt.Errorf("invalid header line: %s", line)
+		}
+		if len(parts[0]) == 0 {
+			return nil, fmt.Errorf("invalid header line: %s", line)
+		}
+		if strings.Contains(parts[0], " ") {
+			return nil, fmt.Errorf("invalid header line: %s", line)
+		}
+		splits := strings.Split(parts[1], ",")
+		for i := range splits {
+			header.Add(strings.TrimSpace(parts[0]), strings.ToLower(strings.TrimSpace(splits[i])))
+		}
+	}
+	return header, nil
+}
+
+func parseBody(reader *bufio.Reader, header http.Header) (io.Reader, error) {
+	var body io.Reader
+	if cl, err := strconv.Atoi(header.Get("Content-Length")); err == nil {
+		body = io.LimitReader(reader, int64(cl))
+	}
+	return body, nil
+}
