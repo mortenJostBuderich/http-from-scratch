@@ -3,6 +3,7 @@ package http1
 import (
 	"bufio"
 	"fmt"
+	"httpServer/internal/mux1"
 	"net"
 	"net/http"
 )
@@ -15,7 +16,7 @@ func ListenAndServe(addr string, handler http.Handler) error {
 	defer listener.Close()
 
 	if handler == nil {
-		handler = http.DefaultServeMux
+		handler = mux1.NewMyMux()
 	}
 
 	for {

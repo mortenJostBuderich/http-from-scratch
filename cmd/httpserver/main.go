@@ -3,26 +3,29 @@ package main
 import (
 	"fmt"
 	"httpServer/internal/http1"
-	"io"
+	"httpServer/internal/mux1"
 	"net/http"
 )
 
 const addr = ":8080"
 
 func main() {
-	http.HandleFunc("/hello", func(w http.ResponseWriter, r *http.Request) {
-		fmt.Fprintf(w, "hello")
+	mux := mux1.NewMyMux()
+
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "Welcome to the homepage!")
 	})
-	http.HandleFunc("POST /hello", func(w http.ResponseWriter, r *http.Request) {
-		body, err := io.ReadAll(r.Body)
-		if err != nil {
-			http.Error(w, "failed to read body", http.StatusBadRequest)
-			return
-		}
-		defer r.Body.Close()
-		fmt.Fprintf(w, "%s", string(body))
+
+	mux.HandleFunc("/api/status", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "Status: Systems Operational")
 	})
-	if err := http1.ListenAndServe(addr, nil); err != nil {
-		panic(err)
+
+	mux.HandleFunc("POST /", func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintln(w, "deal with post")
+	})
+
+	err := http1.ListenAndServe(addr, mux)
+	if err != nil {
+		panic("ijijij")
 	}
 }
