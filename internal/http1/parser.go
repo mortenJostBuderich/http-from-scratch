@@ -35,7 +35,6 @@ func ParseRequest(reader *bufio.Reader) (*http.Request, error) {
 	req.ProtoMajor = majorVersion
 	req.ProtoMinor = minorVersion
 	req.Header = header
-	req.Pattern = fmt.Sprintf("%s %s HTTP/%d.%d", method, path, majorVersion, minorVersion)
 
 	connHeader := strings.ToLower(req.Header.Get("Connection"))
 	if req.ProtoMajor == 1 && req.ProtoMinor == 0 {

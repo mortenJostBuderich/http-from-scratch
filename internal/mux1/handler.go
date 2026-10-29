@@ -3,37 +3,85 @@ package mux1
 import (
 	"fmt"
 	"net/http"
+	"strings"
 	"sync"
 )
 
 type MyMux struct {
-	handlerMap map[string]func(http.ResponseWriter, *http.Request)
-	mu         sync.RWMutex
+	routes map[string]map[string]http.HandlerFunc
+	mu     sync.RWMutex
 }
 
 func NewMyMux() *MyMux {
-	return &MyMux{make(map[string]func(http.ResponseWriter, *http.Request)), sync.RWMutex{}}
+	return &MyMux{
+		routes: make(map[string]map[string]http.HandlerFunc),
+	}
 }
 
-func (m *MyMux) ServeHTTP(writer http.ResponseWriter, request *http.Request) {
-	var pattern string
-	if request.Method == "GET" {
-		pattern = request.RequestURI
-	} else {
-		pattern = fmt.Sprintf("%s %s", request.Method, request.RequestURI)
-	}
+func (m *MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
+	path := r.URL.Path
 
 	m.mu.RLock()
-	if f, ex := m.handlerMap[pattern]; ex {
-		f(writer, request)
-	} else {
-		http.NotFound(writer, request)
+	defer m.mu.RUnlock()
+
+	methods, pathExists := m.routes[path]
+
+	if !pathExists {
+		var fallbackPath string
+		if before, ok := strings.CutSuffix(path, "/"); ok {
+			fallbackPath = before
+		} else {
+			fallbackPath = path + "/"
+		}
+
+		// If the alternate path exists, redirect the client
+		if _, fallbackExists := m.routes[fallbackPath]; fallbackExists {
+			target := fallbackPath
+			// Preserve query string during redirect if one exists
+			if r.URL.RawQuery != "" {
+				target += "?" + r.URL.RawQuery
+			}
+			http.Redirect(w, r, target, http.StatusMovedPermanently)
+			return
+		}
+
+		http.NotFound(w, r)
+		return
 	}
-	m.mu.RUnlock()
+
+	handler, methodExists := methods[r.Method]
+	if !methodExists {
+		// Collect all allowed methods for this path to build the Allow header
+		var allowed []string
+		for allowedMethod := range methods {
+			allowed = append(allowed, allowedMethod)
+		}
+		allowed = append(allowed, "OPTIONS") // Standard best practice
+
+		w.Header().Set("Allow", strings.Join(allowed, ", "))
+		w.WriteHeader(http.StatusMethodNotAllowed)
+		fmt.Fprintf(w, "405 Method Not Allowed\n")
+		return
+	}
+
+	handler(w, r)
 }
 
 func (m *MyMux) HandleFunc(pattern string, handler func(http.ResponseWriter, *http.Request)) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	m.handlerMap[pattern] = handler
+
+	method := "GET"
+	path := pattern
+	parts := strings.SplitN(pattern, " ", 2)
+	if len(parts) == 2 {
+		method = strings.ToUpper(parts[0])
+		path = parts[1]
+	}
+
+	if m.routes[path] == nil {
+		m.routes[path] = make(map[string]http.HandlerFunc)
+	}
+
+	m.routes[path][method] = handler
 }
