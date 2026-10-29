@@ -59,8 +59,7 @@ func HandleConnection(conn net.Conn, mux http.Handler) error {
 		if err = res.SendHeaders(); err != nil {
 			return err
 		}
-
-		if req.Close {
+		if req.Close || res.Header().Get("Connection") == "close" {
 			break
 		}
 	}
