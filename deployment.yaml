@@ -1,0 +1,25 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: server-deployment
+  labels:
+    app: my-server
+spec:
+  replicas: 1
+  strategy:
+    type: RollingUpdate
+    rollingUpdate:
+      maxSurge: 50%
+      maxUnavailable: 0
+  selector:
+    matchLabels:
+      app: my-server
+  template:
+    metadata:
+      labels:
+        app: my-server
+    spec:
+      containers:
+        - name: server-image
+          image: my-server
+          imagePullPolicy: Never    # Crucial for local kind clusters
