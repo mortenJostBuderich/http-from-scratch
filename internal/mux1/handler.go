@@ -3,6 +3,7 @@ package mux1
 import (
 	"fmt"
 	"net/http"
+	"path"
 	"strings"
 	"sync"
 )
@@ -19,15 +20,14 @@ func NewMyMux() *MyMux {
 }
 
 func (m *MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
-	path := r.URL.Path
+	cleanPath := path.Clean(r.URL.Path)
 
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-
-	methods, pathExists := m.routes[path]
+	methods, pathExists := m.routes[cleanPath]
+	m.mu.RUnlock()
 
 	if !pathExists {
-		if fallbackPath, ok := strings.CutSuffix(path, "/"); ok {
+		if fallbackPath, ok := strings.CutSuffix(cleanPath, "/"); ok {
 			if _, fallbackExists := m.routes[fallbackPath]; fallbackExists {
 				target := fallbackPath
 				// Preserve query string during redirect if one exists
