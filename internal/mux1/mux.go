@@ -1,7 +1,6 @@
 package mux1
 
 import (
-	"fmt"
 	"net/http"
 	"path"
 	"strings"
@@ -50,7 +49,6 @@ func (m *MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		}
 		w.Header().Set("Allow", strings.Join(allowed, ", "))
 		w.WriteHeader(http.StatusMethodNotAllowed)
-		fmt.Fprintf(w, "405 Method Not Allowed\n")
 		return
 	}
 
@@ -62,16 +60,16 @@ func (m *MyMux) HandleFunc(pattern string, handler func(http.ResponseWriter, *ht
 	defer m.mu.Unlock()
 
 	method := "GET"
-	path := pattern
+	route := pattern
 	parts := strings.SplitN(pattern, " ", 2)
 	if len(parts) == 2 {
 		method = strings.ToUpper(parts[0])
-		path = parts[1]
+		route = parts[1]
 	}
 
-	if m.routes[path] == nil {
-		m.routes[path] = make(map[string]http.HandlerFunc)
+	if m.routes[route] == nil {
+		m.routes[route] = make(map[string]http.HandlerFunc)
 	}
 
-	m.routes[path][method] = handler
+	m.routes[route][method] = handler
 }
