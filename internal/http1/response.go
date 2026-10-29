@@ -4,7 +4,6 @@ import (
 	"fmt"
 	"net"
 	"net/http"
-	"strconv"
 )
 
 type Response struct {
@@ -37,8 +36,9 @@ func (r *Response) Write(data []byte) (n int, err error) {
 		if r.statusCode == 0 {
 			r.statusCode = http.StatusOK
 		}
+		// If no Content-Length is provided, close the connection when finished
 		if r.headers.Get("Content-Length") == "" {
-			r.headers.Set("Content-Length", strconv.Itoa(len(data)))
+			r.headers.Set("Connection", "close")
 		}
 		if err := r.sendHeaders(); err != nil {
 			return 0, err

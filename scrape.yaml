@@ -1,0 +1,13 @@
+apiVersion: operator.victoriametrics.com/v1beta1
+kind: VMServiceScrape
+metadata:
+  name: server-scrape
+  namespace: default
+spec:
+  selector:
+    matchLabels:
+      app: my-server
+  endpoints:
+    - port: http-metrics      # Must match the named port in your Service
+      path: /metrics          # The URL path where metrics live (default is /metrics)
+      interval: 15s           # How often to scrape
