@@ -27,37 +27,27 @@ func (m *MyMux) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	methods, pathExists := m.routes[path]
 
 	if !pathExists {
-		var fallbackPath string
-		if before, ok := strings.CutSuffix(path, "/"); ok {
-			fallbackPath = before
-		} else {
-			fallbackPath = path + "/"
-		}
-
-		// If the alternate path exists, redirect the client
-		if _, fallbackExists := m.routes[fallbackPath]; fallbackExists {
-			target := fallbackPath
-			// Preserve query string during redirect if one exists
-			if r.URL.RawQuery != "" {
-				target += "?" + r.URL.RawQuery
+		if fallbackPath, ok := strings.CutSuffix(path, "/"); ok {
+			if _, fallbackExists := m.routes[fallbackPath]; fallbackExists {
+				target := fallbackPath
+				// Preserve query string during redirect if one exists
+				if r.URL.RawQuery != "" {
+					target += "?" + r.URL.RawQuery
+				}
+				http.Redirect(w, r, target, http.StatusMovedPermanently)
+				return
 			}
-			http.Redirect(w, r, target, http.StatusMovedPermanently)
-			return
 		}
-
 		http.NotFound(w, r)
 		return
 	}
 
 	handler, methodExists := methods[r.Method]
 	if !methodExists {
-		// Collect all allowed methods for this path to build the Allow header
 		var allowed []string
 		for allowedMethod := range methods {
 			allowed = append(allowed, allowedMethod)
 		}
-		allowed = append(allowed, "OPTIONS") // Standard best practice
-
 		w.Header().Set("Allow", strings.Join(allowed, ", "))
 		w.WriteHeader(http.StatusMethodNotAllowed)
 		fmt.Fprintf(w, "405 Method Not Allowed\n")
